@@ -249,6 +249,10 @@ void processCourseByDependency(
 		}
 	}
 
+	/* In order to properly process courses with prerequisites, we have to first create a list of courses and order them in a way that makes
+		sense, given their prerequisites. This is called a topological sort created by Kahn. This creates a list that tracks courses that can 
+		be taken without prerequisites, or courses where the prerequisites have already been met. */
+
 	//Main processing loop
 	while (!readyToProcess.empty()) {
 
@@ -277,7 +281,7 @@ void processCourseByDependency(
 		//Add to the BST as a node
 		courseTree.Insert(newCourse);
 
-		//Update dependencies
+		//This checks if the course ID was one of the courses prerequisites
 		for (auto& otherCoursePair : prereqCountMap) {
 			std::string otherCourseID = otherCoursePair.first;
 
@@ -285,6 +289,7 @@ void processCourseByDependency(
 			if (IDPrereqsMap.count(otherCourseID) > 0) { // Check existence
 				const std::vector<std::string>& prereqs = IDPrereqsMap.at(otherCourseID);
 
+				//If the course was a prerequisites, it then removes the count remaining, if the count drops to 0, all prerequisites have been met
 				if (std::find(prereqs.begin(), prereqs.end(), currentCourseID) != prereqs.end()) {
 					otherCoursePair.second--;
 
