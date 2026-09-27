@@ -7,7 +7,9 @@
 #include <sstream>
 #include <vector>
 #include <map>
+#include <memory>
 #include <queue>
+#include <unordered_map>
 #include <algorithm>
 #include <iomanip>
 #include <cctype>
@@ -43,6 +45,24 @@ struct TreeNode {
 	}
 };
 
+//Struct to build the Trie Nodes
+struct TrieNode {
+	//Using a map matching a single character to the next child TrieNode pointer
+	unordered_map<char, TrieNode*> children;
+
+	//Flag to mark if the node represents the complete string of a course ID
+	bool isEndofWord;
+
+	//The shortcut pointing directly to the B+ Tree Data Layer
+	shared_ptr<Course> courseDataPointer;
+
+	//Constructor
+	TrieNode() {
+		isEndofWord = false;
+		courseDataPointer = nullptr;
+	}
+};
+
 //New struct for the BPlusNode
 struct BPlusNode {
 	bool isLeaf;				//Leaf node or guidepost
@@ -63,6 +83,100 @@ struct BPlusNode {
 	}
 };
 
+class CourseTrie {
+private:
+	TrieNode* root;
+
+	//Helper method to recursively delete nodes and prevent memory leaks
+	void clear(TrieNode* node) {
+		if (!node) return;
+		for (auto& pair : node->children) {
+			clear(pair.second);
+		}
+		delete node;
+	}
+
+	//Recursive helper function to collect all course pointers down from a specific node.
+	void collectAllWords(TrieNode* node, vector<shared_ptr<Course>>& results) {
+		if (!node) return;
+
+		//If this node marks the end of a valid course ID, grab its payload pointer.
+		if (node->isEndofWord && node->courseDataPointer != nullptr) {
+			results.push_back(node->courseDataPointer);
+		}
+
+		//Keep traversing down all character paths
+		for (auto& pair : node->children) {
+			collectAllWords(pair.second, results);
+		}
+	}
+
+public:
+	CourseTrie() {
+		root = new TrieNode();
+	}
+
+	//Deconstructor
+	~CourseTrie() {
+		clear(root);
+	}
+
+	//Trie insertion
+	void insertTrie(const string& courseID, shared_ptr<Course> coursePtr) {
+		TrieNode* curr = root;
+
+		for (char ch : courseID) {
+			//If the character path doesn't exist, spawn a new node
+			if (curr->children.find(ch) == curr->children.end()) {
+				curr->children[ch] = new TrieNode();
+			}
+			//Move down to child node
+			curr = curr->children[ch];
+		}
+
+		//Got to the end of Course ID String
+		curr->isEndofWord = true;
+		curr->courseDataPointer = coursePtr;
+	}
+
+	//Trie fast search
+	shared_ptr<Course> searchTrie(const string& courseID) {
+		TrieNode* curr = root;
+
+		for (char ch : courseID) {
+			//If a character path is missing, the course doesn't exist
+			if (curr->children.find(ch) == curr->children.end()) {
+				return nullptr;
+			}
+			curr = curr->children[ch];
+		}
+
+		//Return the shared pointer if it's a valid end-of-word node
+		if (curr != nullptr && curr->isEndofWord) {
+			return curr->courseDataPointer;
+		}
+		return nullptr;
+	}
+
+	//Prefix/Autocomplete Search
+	vector<shared_ptr<Course>> searchPrefix(const string& prefix) {
+		vector<shared_ptr<Course>> results;
+		TrieNode* curr = root;
+
+		//Walk down the Trie following the prefix character path
+		for (char ch : prefix) {
+			if (curr->children.find(ch) == curr->children.end()) {
+				return results;		//Return empty vector if the prefix path doesn't exist.
+			}
+			curr = curr->children[ch];
+		}
+
+		//We are at the root of the prefix branch
+		collectAllWords(curr, results);
+		return results;
+	}
+};
+
 class ABCU_BPlusTree {
 private:
 	BPlusNode* root;
@@ -79,7 +193,7 @@ private:
 		BPlusNode* sibling = new BPlusNode(child->isLeaf);
 
 		// Midpoint calculation for M = 4
-		int mid = child->keys.size() / 2;
+		int mid = static_cast<int>(child->keys.size() / 2);
 
 		if (child->isLeaf) {
 			// Leaf Split: Distribute keys and data payloads
@@ -109,10 +223,6 @@ private:
 
 			parent->keys.insert(parent->keys.begin() + index, pushUpKey);
 		}
-
-		// Maintain the leaf linked-list pointers
-		sibling->next = child->next;
-		child->next = sibling;
 
 		// Insert the new sibling pointer into the parent's children vector
 		parent->children.insert(parent->children.begin() + index + 1, sibling);
@@ -151,38 +261,35 @@ public:
 	void PrintInOrder() {
 		BPlusNode* curr = root;
 
-		//Move to the leftmost leaf node
-		while (curr && curr->isLeaf) {
-			curr = curr->children[0];
+		//Safely drill down to the leftmost (first) leaf node
+		while (curr && !curr->isLeaf) {
+			if (!curr->children.empty()) {
+				curr = curr->children[0]; // Always follow the absolute first child path
+			}
+			else {
+				curr = nullptr; // Break if an internal node has corrupted or empty child arrays
+			}
 		}
 
-		//Perform a check to see if any leaf nodes are present
+		//Extra safety check: Ensure the leaf layer actually exists and holds keys
 		if (!curr || curr->keys.empty()) {
-			cout << "No courses loaded in the system." << endl;
+			std::cout << "\nNo courses loaded in the system." << std::endl;
 			return;
 		}
 
-		//Courses exist so move down in alphabetical order
-		cout << "\n--- Alphabetical Course List ---" << endl;
+		std::cout << "\n--- Alphabetical Course List ---" << std::endl;
+		//Walk the leaf layer linked list horizontally from left to right
 		while (curr != nullptr) {
-			for (size_t i = 0; i < curr->keys.size(); i++) {
-				cout << curr->data[i]->courseID << " - " << curr->data[i]->courseName << " | Prereqs: ";
-
-				//print any prereqs if any
-				if (curr->data[i]->coursePrereqs.empty()) {
-					cout << "None" << endl;
-				}
-				else {
-					for (auto& prereqs : curr->data[i]->coursePrereqs) {
-						cout << prereqs << " | ";
-					}
-					//End the line
-					cout << endl;
+			for (size_t i = 0; i < curr->keys.size(); ++i) {
+				// Ensure index safety within the bounds of the vector
+				if (i < curr->data.size() && curr->data[i] != nullptr) {
+					std::cout << curr->data[i]->courseID << ", " << curr->data[i]->courseName << std::endl;
 				}
 			}
-			curr = curr->next; // Move to the next leaf node to the right
+			curr = curr->next; // Move to the sibling leaf node on the right
 		}
 	}
+
 
 	// Public Insertion Interface
 	void insert(shared_ptr<Course> course) {
@@ -231,7 +338,7 @@ public:
 		while (curr && keepGoing) {
 			for (size_t i = 0; i < curr->keys.size(); ++i) {
 				if (curr->keys[i] >= startID && curr->keys[i] <= endID) {
-					cout << curr->keys[i] << ": " << curr->data[i]->courseName << "\n";
+					std::cout << curr->keys[i] << ": " << curr->data[i]->courseName << "\n";
 				}
 				if (curr->keys[i] > endID) {
 					keepGoing = false;
@@ -357,6 +464,7 @@ string ConvertToUpper(string lowerString) {
 	//return converted string
 	return tempString;
 }
+
 void parseCSVFile(const string& fileName) {
 
 	//Begin by opening the csv file
@@ -438,7 +546,8 @@ void processCourseByDependency(
 	const map<string, string>& IDNamesMap,
 	const map<string, vector<string>>& IDPrereqsMap,
 	map <string, int>& prereqCountMap,
-	ABCU_BPlusTree& courseTree) {
+	ABCU_BPlusTree& courseTree,
+	CourseTrie& courseTrie) {
 	
 	//create a queue to process courses based on count of prereqs
 	queue<string> readyToProcess;
@@ -488,6 +597,10 @@ void processCourseByDependency(
 		//Add to the B+ Tree via the shared ptr interface
 		courseTree.insert(newCourse);
 
+		//Simultaneously add the node to the Trie Tree as both the courseID and the CourseName
+		courseTrie.insertTrie(currentCourseID, newCourse);
+		courseTrie.insertTrie(ConvertToUpper(courseName), newCourse);
+
 		//This checks if the course ID was one of the courses prerequisites
 		for (auto& otherCoursePair : prereqCountMap) {
 			string otherCourseID = otherCoursePair.first;
@@ -513,21 +626,20 @@ void processCourseByDependency(
 int main() {
 	//Initialize the csv path name
 	string csvPath = "ABCU_Advising_Program_Input.csv";
-
 	int userChoice = 0;
 
-	//Create instance of the BST
+	//Create instance of the B+ Tree and the Trie
 	ABCU_BPlusTree courseTree;
+	CourseTrie courseTrie;
 
 	while (userChoice != 9) {
-
 		//Display menu
-		cout << "Welcome to the Course Planner" << endl << endl;
-		cout << "1.) Load Data Structures" << endl;
-		cout << "2.) Print Course List" << endl;
-		cout << "3.) Search Course" << endl;
-		cout << "9.) Exit Program" << endl << endl;
-		cout << "Please select an option: ";
+		std::cout << "Welcome to the Course Planner" << endl << endl;
+		std::cout << "1.) Load Data Structures" << endl;
+		std::cout << "2.) Print Course List" << endl;
+		std::cout << "3.) Search Course" << endl;
+		std::cout << "9.) Exit Program" << endl << endl;
+		std::cout << "Please select an option: ";
 
 		//Take in user input
 		cin >> userChoice;
@@ -535,60 +647,79 @@ int main() {
 		switch (userChoice) {
 		case 1:
 			//Request the user to input the file name
-			cout << "Please enter the file name: ";
+			std::cout << "Please enter the file name: ";
 			cin >> csvPath;
 
 			//Begin parsing the CSV storing it locally til it can get processed
 			parseCSVFile(csvPath);
 
 			//Load courses from csv into data structure
-			processCourseByDependency(courseNames, prerequisiteList, prereqCount, courseTree);
-
+			processCourseByDependency(courseNames, prerequisiteList, prereqCount, courseTree, courseTrie);
 			break;
+
 		case 2:
 			//Print all courses
 			courseTree.PrintInOrder();
-			cout << endl << endl;
+			std::cout << endl << endl;
 			break;
-		case 3: {
 
+		case 3: {
 			string searchString;
+
 			//Search and print for a single course
-			cout << "\nPlease enter a course ID you wish to search: ";
+			std::cout << "\nPlease enter a course ID you wish to search: ";
 			cin >> searchString;
 
 			//Change to use shared_ptr
-			shared_ptr<Course> result = courseTree.search(ConvertToUpper(searchString));
+			vector<shared_ptr<Course>> results = courseTrie.searchPrefix(ConvertToUpper(searchString));
 
-			if (result != nullptr) {
-				cout << endl << endl << "Found course: " << searchString << endl;
-				cout << "Course ID: " << result->courseID << " | "
-					<< "Course Name: " << result->courseName << " | "
-					<< "Prerequisites: ";
+			//Removing duplicates from the results vector
+			sort(results.begin(), results.end());
+			
+			//Move all uniques to the front to then erase the duplicates trailing
+			auto last = unique(results.begin(), results.end());
+			results.erase(last, results.end());
 
-				if (result->coursePrereqs.empty()) {
-					cout << "None.";
-				}
-				else {
-					for (size_t i = 0; i < result->coursePrereqs.size(); ++i) {
-						cout << result->coursePrereqs[i];
-						if (i < result->coursePrereqs.size() - 1) {
-							cout << " | ";
+			if (!results.empty()) {
+				std::cout << "\nFound " << results.size() << " matching suggestion(s): " << endl;
+
+				for (const auto& result : results) {
+					std::cout << "-----------------------------------" << endl;
+					std::cout << "Course ID: " << result->courseID << " | "
+						<< "Course Name: " << result->courseName << " | "
+						<< "Prerequisites: ";
+
+					if (result->coursePrereqs.empty()) {
+						std::cout << "None";
+					}
+					else {
+						for (size_t i = 0; i < result->coursePrereqs.size(); i++) {
+							std::cout << result->coursePrereqs[i];
+							if (i < result->coursePrereqs.size() - 1) {
+								std::cout << " | ";
+							}
 						}
 					}
+					std::cout << endl;
 				}
-				break;
 			}
 			else {
-				cout << "\nCourse ID " << searchString << " not found." << endl;
+				std::cout << "\nNo courses found starting with \"" << searchString << "\"." << endl;
 			}
+			break;
 		}
+
+		case 9:
+			break;
+
+		default:
+			std::cout << "Invalid option. Please try again." << endl;
+			break;
 		}
-
-		//Exit program
-		cout << "Thank you for using the Course Planner. Have a good day.";
-
-		return 0;
-
 	}
+
+	//Exit program
+	std::cout << "Thank you for using the Course Planner. Have a good day." << endl;
+
+	return 0;
 }

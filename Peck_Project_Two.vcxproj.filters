@@ -22,4 +22,7 @@
   <ItemGroup>
     <None Include="ABCU_Advising_Program_Input.csv" />
   </ItemGroup>
+  <ItemGroup>
+    <Text Include="Full_Course_List.csv" />
+  </ItemGroup>
 </Project>
