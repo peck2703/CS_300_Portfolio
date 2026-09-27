@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iomanip>
 #include <cctype>
+#include <chrono>
 
 using namespace std;
 
@@ -350,102 +351,6 @@ public:
 	}
 };
 
-/*class ABCU_BST_Tree {
-
-private:
-	TreeNode* root = nullptr;
-
-	//Private helper functiuon for recursive insertion
-	TreeNode* insertRecursive(TreeNode* node, Course courseData) {
-		if (node == nullptr) {
-			return new TreeNode(courseData);
-		}
-
-		//Determine order in BST
-		if (courseData.courseID < node->courseData.courseID) {
-			node->left = insertRecursive(node->left, courseData);
-		}
-		else if (courseData.courseID > node->courseData.courseID){
-			node->right = insertRecursive(node->right, courseData);
-		}
-		else {
-			//Duplicates. Do nothing unless a bug appears
-		}
-
-		return node;
-	}
-
-	//Private recursive function for in-order order
-	void inOrderRecursive(TreeNode* node) {
-		if (node == nullptr) {
-			return;
-		}
-
-		//Visit left side
-		inOrderRecursive(node->left);
-
-		//Print data from node
-		std::cout << node->courseData.courseID << ", " << node->courseData.courseName << " | Prereqs: ";
-
-		//print any prereqs if any
-		if (node->courseData.coursePrereqs.empty()) {
-			std::cout << "None" << std::endl;
-		}
-		else {
-			for (auto& prereqs : node->courseData.coursePrereqs) {
-				std::cout << prereqs << " | ";
-			}
-			//End the line
-			std::cout << endl;
-		}
-
-		//Visit the right side
-		inOrderRecursive(node->right);
-	}
-
-	TreeNode* searchRecursive(TreeNode* node, const std::string& courseID) {
-		if (node == nullptr || node->courseData.courseID == courseID) {
-			//Tree is empty or node was found
-			return node;
-		}
-
-		//Smaller, traverse the left side
-		if (courseID < node->courseData.courseID) {
-			searchRecursive(node->left, courseID);
-		}
-		//Larger, traverse the right side
-		else {
-			searchRecursive(node->right, courseID);
-		}
-	}
-
-public:
-	//Public function to call for insertion
-	void Insert(Course courseData) {
-		root = insertRecursive(root, courseData);
-	}
-
-	//Public function to print the in-order traversal
-	void PrintInOrder() {
-		inOrderRecursive(root);
-	}
-
-	Course* search(const std::string& courseID) {
-		TreeNode* foundNode = searchRecursive(this->root, courseID);
-
-		if (foundNode == nullptr) {
-			//Node not found
-			std::cout << "Error: Course: " << courseID << " not found." << std::endl;
-			return nullptr;
-		}
-		else {
-			return &(foundNode->courseData);
-		}
-	}
-};
-
-*/
-
 //Course ID with names
 map<string, string> courseNames;
 
@@ -523,19 +428,6 @@ void parseCSVFile(const string& fileName) {
 			//Update the column index
 			column_index++;
 		}
-		
-
-		////Testing phase for insertion
-		//std::cout << "Course ID: " + courseID <<
-		//	" Course Name: " << courseNames[courseID];
-
-		////Print any prereq if found
-		//for (const std::string& prereqID : prereqCousesTemp) {
-		//	std::cout << " | " << prereqID;
-		//}
-
-		////end with a new line
-		//std::cout << endl;
 	}
 }
 
@@ -671,7 +563,9 @@ int main() {
 			cin >> searchString;
 
 			//Change to use shared_ptr
+			auto trieStart = std::chrono::high_resolution_clock::now();
 			vector<shared_ptr<Course>> results = courseTrie.searchPrefix(ConvertToUpper(searchString));
+			auto trieEnd = std::chrono::high_resolution_clock::now();
 
 			//Removing duplicates from the results vector
 			sort(results.begin(), results.end());
@@ -679,6 +573,15 @@ int main() {
 			//Move all uniques to the front to then erase the duplicates trailing
 			auto last = unique(results.begin(), results.end());
 			results.erase(last, results.end());
+
+			//Benchmarking the Trie search
+			auto bPlusStart = std::chrono::high_resolution_clock::now();
+			shared_ptr<Course> bPlusResult = courseTree.search(searchString);
+			auto bPlusEnd = std::chrono::high_resolution_clock::now();
+
+			// Calculate durations in microseconds
+			auto trieDuration = std::chrono::duration_cast<std::chrono::microseconds>(trieEnd - trieStart).count();
+			auto bPlusDuration = std::chrono::duration_cast<std::chrono::microseconds>(bPlusEnd - bPlusStart).count();
 
 			if (!results.empty()) {
 				std::cout << "\nFound " << results.size() << " matching suggestion(s): " << endl;
@@ -706,6 +609,10 @@ int main() {
 			else {
 				std::cout << "\nNo courses found starting with \"" << searchString << "\"." << endl;
 			}
+
+			std::cout << " PERFORMANCE BENCHMARK RESULTS " << endl;
+			std::cout << "Trie Prefix Search (O(L)):     " << trieDuration << " microseconds" << endl;
+			std::cout << "B+ Tree Exact Search (O(log N)): " << bPlusDuration << " microseconds" << endl;
 			break;
 		}
 
